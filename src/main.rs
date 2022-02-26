@@ -31,7 +31,7 @@ fn main() {
     let mut log: String = String::from("");
     let mut ext: String = String::from("");
     let mut size: usize = 0;
-    let mut log_file: std::fs::File;
+    let mut log_file: Option<std::fs::File> = None;
 
     println!("RemoveOLD v{}", VER);
     args.remove(0); // remove programm name
@@ -114,20 +114,23 @@ fn main() {
     // TODO: open log file
     if log_write_flag {
         log_file = match OpenOptions::new().read(true).write(true).create(true).open(log.clone()){
-            Ok(l) => l,
+            Ok(l) => Some(l),
             Err(err) => {
                 println!("Error opening log file: {}", err.to_string());
                 return;
             }
         };
-        match log_file.seek(SeekFrom::End(0)) {
-            Ok(r) => r,
+        let mut t = log_file.expect("Something goes wrong!");
+        log_file = match t.seek(SeekFrom::End(0)) {
+            Ok(_) => Some(t),
             Err(err) => {
                 println!("Error working with log file: {}", err.to_string());
                 return;
             }
         };
-        write_log_message(&mut log_file, "Application started");
+        let mut t = log_file.expect("Something goes wrong!");
+        write_log_message(&mut t, "Application started");
+        log_file = Some(t);
     }
 
     // TODO: analyze space size
@@ -141,10 +144,14 @@ fn main() {
     println!("free space: {} bytes", free_space);
 
     // TODO: find files to delete
+    if free_space < size {
+
+    }
     // TODO: finish
 
     if log_write_flag {
-        write_log_message(&mut log_file, "Application finished");
+        let mut t = log_file.expect("Something goes wrong!");
+        write_log_message(&mut t, "Application finished");
     }
     // TODO: remove those lines
     println!("ext: {}", ext);
