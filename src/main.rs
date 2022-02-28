@@ -145,7 +145,7 @@ fn main() {
             },
         }
     }
-    println!("Minimal size of free space: {} bytes", size);
+
     if size == 0 {
         println!("You should specify the 'size' parameter in command line!");
         return;
