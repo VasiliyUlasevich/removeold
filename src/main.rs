@@ -182,12 +182,19 @@ fn main() {
         libc::statvfs(cwd.as_ptr() as *const _, &mut stat_buf);
         free_space = stat_buf.f_bavail as usize * stat_buf.f_frsize as usize;
     }
+
+    println!("Start point: {}", cur_dir.to_str().unwrap());
+    if log_write_flag {
+        let mut t = log_file.expect("Something goes wrong!");
+        write_log_message(&mut t, format!("Start point: {}", cur_dir.to_str().unwrap()).as_str());
+        log_file = Some(t);
+    }
     println!("free space: {} bytes", free_space);
 
     if free_space < size {
         let mut list: Vec<Files> = Vec::new();
-    // seek files to delete
-    get_files_list(&cur_dir, &ext, &mut list);
+        // seek files to delete
+        get_files_list(&cur_dir, &ext, &mut list);
 
         // sort and find slice of files to remove
         list.sort_by(|a,b| a.create_date.cmp(&b.create_date));
