@@ -2,8 +2,6 @@ pub use libc;
 
 use std::env;
 use std::mem;
-use std::os::unix::ffi::OsStrExt;
-use std::ffi::CString;
 use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -13,8 +11,9 @@ use std::path::Path;
 use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::time::SystemTime;
+use std::ffi::CString;
 
-const VER: &str = "1.0";
+const VER: &str = "1.0.1";
 
 struct Files {
     name: String,
@@ -22,15 +21,29 @@ struct Files {
     size: usize
 }
 
-fn write_log_message(log_file: &mut std::fs::File , message: &str) {
-    let local_time: DateTime<Local> = Local::now();
-    match log_file.write_fmt(format_args!("{} {}\n",local_time.format("%Y-%m-%d %H:%M:%S").to_string(), message)) {
-        Ok(r) => r,
-        Err(err) => {
-            println!("Error writing to log file: {}", err.to_string());
-            std::process::exit(-1);
+struct FileOrNone {
+    f: Option<std::fs::File>
+}
+impl FileOrNone {
+    fn borrow_mut(&mut self) -> Result<&mut std::fs::File, &'static str> {
+        match &mut self.f {
+            Some(x) => Ok(x),
+            None => {
+                panic!("Cannot borrow None value");
+            }
         }
-    };
+    }
+    fn write_log_message(&mut self, message: &str) {
+        match &mut self.f {
+            Some(x) => {
+                let local_time: DateTime<Local> = Local::now();
+                x.write_fmt(format_args!("{} {}\n",local_time.format("%Y-%m-%d %H:%M:%S").to_string(), message)).expect("Error writing to log file");
+            },
+            None => {
+                panic!("Cannot borrow None value");
+            }
+        };
+    }
 }
 
 fn get_files_list(_dir: &Path, ext: &String, _list: &mut Vec<Files>){
@@ -66,7 +79,7 @@ fn main() {
     let mut log: String = String::from("");
     let mut ext: String = String::from("");
     let mut size: usize = 0;
-    let mut log_file: Option<std::fs::File> = None;
+    let mut log_file: FileOrNone = FileOrNone { f: None };
     let mut dry_run: bool = false;
 
     println!("RemoveOLD v{}", VER);
@@ -154,40 +167,31 @@ fn main() {
     // open log file
     if log_write_flag {
         log_file = match OpenOptions::new().read(true).write(true).create(true).open(log.clone()){
-            Ok(l) => Some(l),
+            Ok(l) => FileOrNone {f:Some(l)},
             Err(err) => {
-                println!("Error opening log file: {}", err.to_string());
-                return;
+                panic!("Error opening log file: {}", err.to_string());
             }
         };
-        let mut t = log_file.expect("Something goes wrong!");
-        log_file = match t.seek(SeekFrom::End(0)) {
-            Ok(_) => Some(t),
-            Err(err) => {
-                println!("Error working with log file: {}", err.to_string());
-                return;
-            }
-        };
-        let mut t = log_file.expect("Something goes wrong!");
-        write_log_message(&mut t, "Application started");
-        log_file = Some(t);
+
+        log_file.borrow_mut().unwrap().seek(SeekFrom::End(0)).expect("Error working with log file");
+
+        log_file.write_log_message("Application started");
     }
 
     // analyze space size
     let cur_dir = env::current_dir().unwrap();
-    let cwd = CString::new(cur_dir.as_os_str().as_bytes()).unwrap();
+    let cwd = String::from(cur_dir.to_str().unwrap());
+    let path_cstring =  CString::new(cwd.clone()).unwrap();
     let free_space: usize;
     unsafe {
         let mut stat_buf: libc::statvfs = mem::zeroed();
-        libc::statvfs(cwd.as_ptr() as *const _, &mut stat_buf);
+        libc::statvfs(path_cstring.as_ptr() as *const _, &mut stat_buf);
         free_space = stat_buf.f_bavail as usize * stat_buf.f_frsize as usize;
     }
 
-    println!("Start point: {}", cur_dir.to_str().unwrap());
+    println!("Start point: {}", cwd);
     if log_write_flag {
-        let mut t = log_file.expect("Something goes wrong!");
-        write_log_message(&mut t, format!("Start point: {}", cur_dir.to_str().unwrap()).as_str());
-        log_file = Some(t);
+        log_file.write_log_message(format!("Start point: {}", cwd).as_str());
     }
     println!("free space: {} bytes", free_space);
 
@@ -201,13 +205,10 @@ fn main() {
         let mut sum: usize = 0;
         let mut counter: u32 = 0;
         let files_number = list.len();
-        if dry_run {
-            let mut t = log_file.expect("Something goes wrong!");
-            write_log_message(&mut t, "DRY mode");
-            log_file = Some(t);
+        if dry_run && log_write_flag {
+            log_file.write_log_message("DRY mode");
         }
         for item in list {
-            //let _datetime: DateTime<Utc> = item.create_date.into();
             let res: Result<(), std::io::Error>;
             if dry_run {
                 res = Ok(());
@@ -219,9 +220,9 @@ fn main() {
                     sum += item.size;
                     counter += 1;
 
-                    let mut t = log_file.expect("Something goes wrong!");
-                    write_log_message(&mut t, format!("Cleared {} bytes by deleting {} ", item.size, item.name ).as_str());
-                    log_file = Some(t);
+                    if log_write_flag {
+                        log_file.write_log_message(format!("Cleared {} bytes by deleting {} ", item.size, item.name ).as_str());
+                    }
 
                     if sum > size - free_space {
                         break;
@@ -239,7 +240,6 @@ fn main() {
     // finish
 
     if log_write_flag {
-        let mut t = log_file.expect("Something goes wrong!");
-        write_log_message(&mut t, "Application finished");
+        log_file.write_log_message("Application finished");
     }
 }
