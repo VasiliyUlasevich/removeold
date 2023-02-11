@@ -12,6 +12,7 @@ use std::fs;
 use std::os::unix::fs::MetadataExt;
 use std::time::SystemTime;
 use std::ffi::CString;
+use std::collections::HashSet;
 
 const VER: &str = "1.0.1";
 
@@ -205,6 +206,8 @@ fn main() {
         let mut sum: usize = 0;
         let mut counter: u32 = 0;
         let files_number = list.len();
+
+        let mut dirs:HashSet<String> = HashSet::new();
         if dry_run && log_write_flag {
             log_file.write_log_message("DRY mode");
         }
@@ -224,6 +227,16 @@ fn main() {
                         log_file.write_log_message(format!("Cleared {} bytes by deleting {} ", item.size, item.name ).as_str());
                     }
 
+                    let splitted = item.name.rsplit_once('/');
+                    match splitted {
+                        Some((d, _fname)) => {
+                            // add dir to set
+                            dirs.insert(d.to_string());
+                        },
+                        None => ()
+                    }
+
+
                     if sum > size - free_space {
                         break;
                     }
@@ -232,9 +245,23 @@ fn main() {
                     println!("Something goes wrong during deleting file. {:?}", e);
                 }
             }
-
         }
         println!("Checked {} files. deleted {} files. size of deleted files {} bytes.",files_number, counter, sum);
+        if !dry_run {
+            let mut vec:Vec<String> = dirs.into_iter().collect();
+            vec.sort_by(|a, b| b.cmp(a));
+            for item in vec {
+                // remove directory
+                let res = fs::remove_dir(&item);
+                match res {
+                    Err(num) => {
+                        println!("Cannot remove directory: {} Error Number: {}",&item,num);
+                    },
+                    Ok(_) => ()
+                }
+            }
+        }
+
 
     }
     // finish
